@@ -11,10 +11,7 @@ export default defineConfig({
   clean: false,
   splitting: false,
   sourcemap: true,
-  external: ["node:sqlite"],
-  esbuildOptions(options) {
-    options.packages = "external";
-  },
+  removeNodeProtocol: false,
   banner: {
     js: "#!/usr/bin/env node",
   },
