@@ -1,0 +1,49 @@
+{
+  "name": "kvdiff",
+  "version": "0.1.0",
+  "description": "Zero-code local proxy that pinpoints the exact byte breaking your LLM prompt cache (Anthropic, OpenAI, Gemini/Antigravity, llama.cpp/vLLM), tallies wasted $, and auto-heals prefixes live.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "bin": {
+    "kvdiff": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build:ui": "vite build ui",
+    "build:cli": "tsup",
+    "build": "npm run build:ui && npm run build:cli",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "llm",
+    "prompt-cache",
+    "kv-cache",
+    "anthropic",
+    "openai",
+    "gemini",
+    "antigravity",
+    "claude-code",
+    "codex",
+    "mcp",
+    "proxy",
+    "debugging"
+  ],
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.2",
+    "@types/node": "^22.15.0",
+    "preact": "^10.26.4",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4"
+  }
+}
