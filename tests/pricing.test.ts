@@ -60,4 +60,49 @@ describe("estimateCost", () => {
     expect(res.wastedUsd).toBe(0);
     expect(res.cacheHitRate).toBeCloseTo(8 / 18, 4);
   });
+
+  it("returns $0 for local/ollama/vllm prefixed cloud model names", () => {
+    for (const model of [
+      "local/gemini-2.5-pro",
+      "local/claude-sonnet-4-5",
+      "ollama/claude-3-5-sonnet",
+      "vllm/gpt-5",
+    ]) {
+      const rates = lookupModelPricing(model);
+      expect(rates.inputPer1M).toBe(0);
+      expect(rates.cacheReadPer1M).toBe(0);
+      expect(rates.outputPer1M).toBe(0);
+      const res = estimateCost(
+        model,
+        {
+          inputTokens: 50_000,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 500,
+          totalPromptTokens: 50_000,
+        },
+        40_000
+      );
+      expect(res.costUsd).toBe(0);
+      expect(res.wastedUsd).toBe(0);
+    }
+  });
+
+  it("matches gpt-5.1-codex-mini and gpt-5.*-codex variants to OpenAI mini/codex pricing", () => {
+    for (const miniModel of ["gpt-5.1-codex-mini", "openai/gpt-5.1-codex-mini", "gpt-5-codex-mini"]) {
+      const rates = lookupModelPricing(miniModel);
+      expect(rates.inputPer1M).toBe(0.4);
+      expect(rates.cacheReadPer1M).toBe(0.1);
+      expect(rates.outputPer1M).toBe(1.6);
+    }
+
+    for (const codexModel of ["gpt-5.1-codex", "gpt-5-codex", "openai/gpt-5.2-codex"]) {
+      const rates = lookupModelPricing(codexModel);
+      expect(rates.inputPer1M).toBe(2.0);
+      expect(rates.cacheReadPer1M).toBe(0.5);
+      expect(rates.outputPer1M).toBe(8);
+    }
+
+    expect(lookupModelPricing("gpt-5").inputPer1M).toBe(2.5);
+  });
 });

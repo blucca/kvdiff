@@ -8,6 +8,11 @@ const ZERO_RATES: ModelRates = {
 };
 
 const MODEL_PRICING_TABLE: Array<{ match: RegExp; rates: ModelRates }> = [
+  // Local / self-hosted provider prefixes always $0 even when proxying cloud-like names
+  {
+    match: /^(?:local\/|ollama\/|vllm\/)/i,
+    rates: ZERO_RATES,
+  },
   // Anthropic Claude
   {
     match: /claude-(?:opus-4|4-opus|3-opus)/i,
@@ -21,18 +26,18 @@ const MODEL_PRICING_TABLE: Array<{ match: RegExp; rates: ModelRates }> = [
     match: /claude-(?:haiku-4|4-haiku|3-5-haiku|3-haiku)/i,
     rates: { inputPer1M: 0.8, cacheReadPer1M: 0.08, cacheWritePer1M: 1.0, outputPer1M: 4 },
   },
-  // OpenAI GPT / o-series / Codex
+  // OpenAI GPT / o-series / Codex (check mini and codex variants before flagship gpt-5)
   {
-    match: /(?:^|\/)(?:gpt-5|gpt-4\.1|gpt-4o)(?!.*mini)/i,
-    rates: { inputPer1M: 2.5, cacheReadPer1M: 0.625, cacheWritePer1M: 2.5, outputPer1M: 10 },
-  },
-  {
-    match: /(?:^|\/)(?:gpt-5-mini|gpt-4\.1-mini|gpt-4o-mini|o4-mini|o3-mini)/i,
+    match: /(?:^|\/)(?:gpt-5(?:\.\d+)?(?:-[a-z0-9]+)*-mini|gpt-4\.1-mini|gpt-4o-mini|o4-mini|o3-mini|codex-mini)/i,
     rates: { inputPer1M: 0.4, cacheReadPer1M: 0.1, cacheWritePer1M: 0.4, outputPer1M: 1.6 },
   },
   {
-    match: /(?:^|\/)(?:o3|codex)/i,
+    match: /(?:^|\/)(?:gpt-5(?:\.\d+)?-codex|o3|codex)/i,
     rates: { inputPer1M: 2.0, cacheReadPer1M: 0.5, cacheWritePer1M: 2.0, outputPer1M: 8 },
+  },
+  {
+    match: /(?:^|\/)(?:gpt-5|gpt-4\.1|gpt-4o)(?!.*mini)/i,
+    rates: { inputPer1M: 2.5, cacheReadPer1M: 0.625, cacheWritePer1M: 2.5, outputPer1M: 10 },
   },
   // Google Gemini / Antigravity
   {
@@ -43,9 +48,9 @@ const MODEL_PRICING_TABLE: Array<{ match: RegExp; rates: ModelRates }> = [
     match: /gemini-(?:4|3|2\.5|2\.0)-flash/i,
     rates: { inputPer1M: 0.15, cacheReadPer1M: 0.0375, cacheWritePer1M: 0.15, outputPer1M: 0.6 },
   },
-  // Local / OSS self-hosted weights (llama.cpp, vLLM, Ollama, mlx-lm)
+  // OSS self-hosted weights (llama.cpp, vLLM, Ollama, mlx-lm)
   {
-    match: /^(?:local\/|ollama\/|vllm\/)|(?:qwen|llama|deepseek|mistral|gemma|phi-|codestral)/i,
+    match: /(?:qwen|llama|deepseek|mistral|gemma|phi-|codestral)/i,
     rates: ZERO_RATES,
   },
 ];

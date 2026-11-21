@@ -61,6 +61,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
     wrappedCommand,
   };
 
+  const requireValue = (flag: string, nextIdx: number): string => {
+    if (nextIdx >= kvArgs.length) {
+      throw new Error(`Missing value for ${flag}`);
+    }
+    return kvArgs[nextIdx];
+  };
+
   for (let i = 0; i < kvArgs.length; i++) {
     const arg = kvArgs[i];
     if (arg === "-h" || arg === "--help") {
@@ -74,21 +81,28 @@ export function parseArgs(argv: string[]): ParsedArgs {
       parsed.mode = "ui";
     } else if (arg === "--heal") {
       parsed.heal = true;
-    } else if (arg === "--port" && kvArgs[i + 1]) {
-      parsed.port = Number(kvArgs[++i]);
+    } else if (arg === "--port") {
+      const raw = requireValue("--port", ++i);
+      const port = Number(raw);
+      if (raw.trim() === "" || !Number.isInteger(port) || port < 0 || port > 65535) {
+        throw new Error(`Invalid --port "${raw}": expected an integer between 0 and 65535`);
+      }
+      parsed.port = port;
       parsed.portProvided = true;
-    } else if (arg === "--host" && kvArgs[i + 1]) {
-      parsed.host = kvArgs[++i];
-    } else if (arg === "--db" && kvArgs[i + 1]) {
-      parsed.dbPath = kvArgs[++i];
-    } else if (arg === "--upstream-anthropic" && kvArgs[i + 1]) {
-      parsed.upstreamAnthropic = kvArgs[++i];
-    } else if (arg === "--upstream-openai" && kvArgs[i + 1]) {
-      parsed.upstreamOpenAi = kvArgs[++i];
-    } else if (arg === "--upstream-gemini" && kvArgs[i + 1]) {
-      parsed.upstreamGemini = kvArgs[++i];
-    } else if (arg === "--upstream-local" && kvArgs[i + 1]) {
-      parsed.upstreamLocal = kvArgs[++i];
+    } else if (arg === "--host") {
+      parsed.host = requireValue("--host", ++i);
+    } else if (arg === "--db") {
+      parsed.dbPath = requireValue("--db", ++i);
+    } else if (arg === "--upstream-anthropic") {
+      parsed.upstreamAnthropic = requireValue("--upstream-anthropic", ++i);
+    } else if (arg === "--upstream-openai") {
+      parsed.upstreamOpenAi = requireValue("--upstream-openai", ++i);
+    } else if (arg === "--upstream-gemini") {
+      parsed.upstreamGemini = requireValue("--upstream-gemini", ++i);
+    } else if (arg === "--upstream-local") {
+      parsed.upstreamLocal = requireValue("--upstream-local", ++i);
+    } else if (arg.startsWith("-")) {
+      throw new Error(`Unknown option: ${arg}. Run "kvdiff --help" for usage.`);
     }
   }
 

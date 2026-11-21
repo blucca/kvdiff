@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "Zero-code local proxy that pinpoints the exact byte breaking your LLM prompt cache (Anthropic, OpenAI, Gemini/Antigravity, llama.cpp/vLLM), tallies wasted $, and auto-heals prefixes live.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flipcyde101/kvdiff.git"
+  },
+  "homepage": "https://github.com/flipcyde101/kvdiff#readme",
+  "bugs": {
+    "url": "https://github.com/flipcyde101/kvdiff/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=24.0.0"
@@ -21,7 +29,7 @@
     "build": "npm run build:ui && npm run build:cli",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.ui.json --noEmit"
   },
   "keywords": [
     "llm",

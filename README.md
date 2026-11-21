@@ -6,6 +6,8 @@
 [![Node >=24](https://img.shields.io/badge/node-%3E%3D24.0.0-brightgreen.svg)](https://nodejs.org)
 [![Zero Native Addons](https://img.shields.io/badge/native%20addons-0%20(node%3Asqlite)-informational.svg)](#architecture)
 
+![kvdiff prompt-cache waterfall and byte-diff inspector](./docs/hero-waterfall.png)
+
 ---
 
 ## See a Prompt-Cache Bust in 5 Seconds (Zero API Keys Required)
@@ -106,11 +108,15 @@ flowchart LR
 ## Development
 
 ```bash
+git clone https://github.com/flipcyde101/kvdiff.git
+cd kvdiff
 npm install
 npm run typecheck
 npm run build
 npm test
 ```
+
+Found a cache-break pattern or provider edge case? Open an issue at [github.com/flipcyde101/kvdiff/issues](https://github.com/flipcyde101/kvdiff/issues).
 
 ## License
 

@@ -105,4 +105,23 @@ describe("launcher & terminal HUD", () => {
     const implicit = parseArgs(["--", "claude"]);
     expect(implicit.portProvided).toBe(false);
   });
+
+  it("validates --port strictly and rejects NaN, non-integers, negative, >65535, or missing values", () => {
+    expect(parseArgs(["serve", "--port", "0"]).port).toBe(0);
+    expect(parseArgs(["serve", "--port", "65535"]).port).toBe(65535);
+
+    for (const bad of ["abc", "3.14", "-1", "65536", ""]) {
+      expect(() => parseArgs(["serve", "--port", bad])).toThrow(/--port/i);
+    }
+    expect(() => parseArgs(["serve", "--port"])).toThrow(/--port/i);
+  });
+
+  it("rejects unknown --flags before -- while forwarding child flags after --", () => {
+    expect(() => parseArgs(["--bogus"])).toThrow(/unknown option.*--bogus/i);
+    expect(() => parseArgs(["serve", "--unknown-flag", "--", "claude"])).toThrow(/unknown option.*--unknown-flag/i);
+
+    const forwarded = parseArgs(["--", "claude", "--unknown-child-flag"]);
+    expect(forwarded.mode).toBe("wrap");
+    expect(forwarded.wrappedCommand).toEqual(["claude", "--unknown-child-flag"]);
+  });
 });

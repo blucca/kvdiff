@@ -65,6 +65,11 @@ export function byteOffsetToJsonPath(buf: Buffer, targetByteOffset: number): str
   const stack: Frame[] = [];
   let i = 0;
 
+  // Skip leading UTF-8 BOM (0xEF 0xBB 0xBF) while preserving original byte offsets
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    i = 3;
+  }
+
   while (i < buf.length) {
     while (i < buf.length && isWhitespace(buf[i])) {
       i++;

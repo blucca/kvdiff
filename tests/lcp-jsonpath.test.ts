@@ -65,4 +65,21 @@ describe("findByteLcp & byteOffsetToJsonPath", () => {
     expect(lcp.prevSnippet).toBe("");
     expect(lcp.currSnippet).toBe("");
   });
+
+  it("skips a leading UTF-8 BOM cleanly in byteOffsetToJsonPath", () => {
+    const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+    const a = Buffer.concat([
+      bom,
+      Buffer.from(JSON.stringify({ system: "hi", tools: [{ name: "a", description: "old" }] }), "utf8"),
+    ]);
+    const b = Buffer.concat([
+      bom,
+      Buffer.from(JSON.stringify({ system: "hi", tools: [{ name: "a", description: "new" }] }), "utf8"),
+    ]);
+    const lcp = findByteLcp(a, b);
+    expect(lcp.byteOffset).not.toBeNull();
+    expect(byteOffsetToJsonPath(b, lcp.byteOffset!)).toBe("$.tools[0].description");
+    expect(byteOffsetToJsonPath(b, 0)).toBe("$");
+    expect(byteOffsetToJsonPath(bom, 1)).toBe("$");
+  });
 });
