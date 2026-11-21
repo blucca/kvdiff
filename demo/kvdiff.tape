@@ -7,14 +7,14 @@ Set Height 680
 Set Theme "GitHub Dark"
 Set Padding 20
 
-Type "npx kvdiff --demo --port 4318"
+Type "npx @drod915/kvdiff --demo --port 4318"
 Sleep 400ms
 Enter
 Sleep 2s
 Ctrl+C
 Sleep 500ms
 
-Type "npx kvdiff -- claude"
+Type "npx @drod915/kvdiff -- claude"
 Sleep 500ms
 Enter
 Sleep 2s

@@ -6,25 +6,28 @@
 [![Node >=24](https://img.shields.io/badge/node-%3E%3D24.0.0-brightgreen.svg)](https://nodejs.org)
 [![Zero Native Addons](https://img.shields.io/badge/native%20addons-0%20(node%3Asqlite)-informational.svg)](#architecture)
 
+[![Watch the 15-second kvdiff demo](https://github.com/flipcyde101/kvdiff/releases/download/v0.1.0/kvdiff-poster.png)](https://github.com/flipcyde101/kvdiff/releases/download/v0.1.0/kvdiff-scoped-demo.mp4)
+
+[Watch the 15-second kvdiff demo (MP4)](https://github.com/flipcyde101/kvdiff/releases/download/v0.1.0/kvdiff-scoped-demo.mp4)
+
 ![kvdiff prompt-cache waterfall and byte-diff inspector](./docs/hero-waterfall.png)
 
-**15-second demo video:** [Watch `kvdiff-demo.mp4` (1280x720 H.264)](https://github.com/flipcyde101/kvdiff/releases/download/v0.1.0/kvdiff-demo.mp4) | [Poster preview](./docs/kvdiff-poster.png) | Try live: `npx kvdiff --demo`
+**Try the demo:** `npx @drod915/kvdiff --demo`
 
 ---
 
 ## See a Prompt-Cache Bust in 5 Seconds (Zero API Keys Required)
 
 ```bash
-npx kvdiff --demo
+npx @drod915/kvdiff --demo
 ```
 
 Opens `http://127.0.0.1:4318` pre-seeded with two realistic sessions:
 1. **Claude Code + 15 MCP Tools (16 turns):** Turn 1 warms the prompt cache at 0%, and Turns 2-13 run at 94% cache hit. On **Turn 14**, `mcp-github` reconnects and reorders tool schemas: `kvdiff` highlights the exact red byte offset (`$.tools[9].name`, byte 1,670), calculates the wasted cost ($0.38), and shows **Turn 15** snapping back to **97% cache hit** under `--heal`.
 2. **Antigravity / Gemini 2.5 Pro (5 turns):** Catches a volatile timestamp injected into `$.systemInstruction.parts[0].text` on Turn 4.
 
-[![Watch the 15-second kvdiff demo video](./docs/kvdiff-poster.png)](https://github.com/flipcyde101/kvdiff/releases/download/v0.1.0/kvdiff-demo.mp4)
 
-> **15s demo clip:** Click the poster above to play [`kvdiff-demo.mp4`](https://github.com/flipcyde101/kvdiff/releases/download/v0.1.0/kvdiff-demo.mp4) or regenerate a terminal recording via `vhs demo/kvdiff.tape`.
+> Record the demo in a terminal with `vhs demo/kvdiff.tape`.
 
 ---
 
@@ -34,26 +37,26 @@ Wrap any coding agent CLI with zero code changes:
 
 ```bash
 # Claude Code (Anthropic Messages API)
-npx kvdiff -- claude
+npx @drod915/kvdiff -- claude
 
 # Codex CLI / OpenCode (OpenAI Responses & Chat APIs)
-npx kvdiff -- codex
+npx @drod915/kvdiff -- codex
 
 # Gemini CLI / Antigravity API workflows (Google Gemini API)
-npx kvdiff -- gemini
+npx @drod915/kvdiff -- gemini
 
-# Opt-in deterministic tool-schema healing (canonicalizes tools[] & schema keys only)
-npx kvdiff --heal -- claude
+# Opt-in deterministic tool-schema healing
+npx @drod915/kvdiff --heal -- claude
 ```
 
 Or run as a persistent local proxy for Antigravity, Cursor, IDE plugins, or local `llama.cpp`/vLLM:
 
 ```bash
 # Cloud providers (Anthropic, OpenAI, Google Gemini / Antigravity)
-npx kvdiff serve --port 4318
+npx @drod915/kvdiff serve --port 4318
 
 # Local llama.cpp / vLLM KV-cache prefix reuse debugging
-npx kvdiff serve --port 4318 --upstream-local http://127.0.0.1:8080
+npx @drod915/kvdiff serve --port 4318 --upstream-local http://127.0.0.1:8080
 ```
 
 Then point your client base URL:
@@ -101,10 +104,10 @@ flowchart LR
 ```
 
 ### Safety & Privacy Guarantees
-- **100% Local:** Binds strictly to `127.0.0.1` by default. Stores traffic only in `~/.kvdiff/kvdiff.db`. Zero telemetry, zero cloud accounts.
+- **100% Local:** Binds to `127.0.0.1` by default. Stores traffic only in `~/.kvdiff/kvdiff.db`. Zero telemetry, zero cloud accounts.
 - **Strict Zero-Mutation Default:** Without `--heal`, `kvdiff` forwards your exact raw request bytes and every non-hop-by-hop header (`Authorization`, `x-api-key`, `x-goog-api-key`, `anthropic-beta`, `openai-beta`) unmodified.
 - **Zero-Buffering SSE:** Streaming responses flush downstream chunk-by-chunk as they arrive from upstream.
-- **Safe `--heal` Invariant:** `--heal` only sorts `tools[]` (and Gemini `tools[].functionDeclarations[]`) plus object keys inside tool schemas. It **never** reorders `messages[]`, `contents[]`, `parts[]`, `content[]`, `input[]`, or JSON Schema `enum[]`.
+- **Safe `--heal` Invariant:** `--heal` sorts tools and tool-definition keys, normalizes JSON formatting, and keeps the trailing Anthropic cache breakpoint on the final tool after sorting. It **never** reorders `messages[]`, `contents[]`, `parts[]`, `content[]`, `input[]`, or JSON Schema `enum[]`.
 
 ---
 

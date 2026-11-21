@@ -1,5 +1,5 @@
 {
-  "name": "kvdiff",
+  "name": "@drod915/kvdiff",
   "version": "0.1.0",
   "description": "Zero-code local proxy that pinpoints the exact byte breaking your LLM prompt cache (Anthropic, OpenAI, Gemini/Antigravity, llama.cpp/vLLM), tallies wasted $, and auto-heals prefixes live.",
   "license": "MIT",
