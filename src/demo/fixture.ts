@@ -6,21 +6,21 @@ import { estimateCost } from "../pricing.js";
 
 function buildMcpTools(shuffled: boolean): Array<Record<string, unknown>> {
   const baseTools = [
-    { name: "bash_exec", description: "Execute a shell command in the workspace.", input_schema: { type: "object", properties: { cmd: { type: "string" } } } },
-    { name: "edit_file", description: "Apply a surgical replacement edit to a file.", input_schema: { type: "object", properties: { path: { type: "string" }, target: { type: "string" } } } },
-    { name: "git_diff", description: "Inspect unstaged and staged git hunks.", input_schema: { type: "object", properties: { base: { type: "string" } } } },
-    { name: "git_status", description: "Check branch state and modified files.", input_schema: { type: "object", properties: { short: { type: "boolean" } } } },
-    { name: "grep_search", description: "Search files with ripgrep regex.", input_schema: { type: "object", properties: { query: { type: "string" } } } },
-    { name: "list_dir", description: "List directory contents and file sizes.", input_schema: { type: "object", properties: { dir: { type: "string" } } } },
-    { name: "mcp_db_query", description: "Run read-only SQL query against staging Postgres.", input_schema: { type: "object", properties: { sql: { type: "string" } } } },
-    { name: "mcp_db_schema", description: "Inspect table schemas and indexes.", input_schema: { type: "object", properties: { table: { type: "string" } } } },
-    { name: "mcp_docker_logs", description: "Tail container logs from local Docker Compose.", input_schema: { type: "object", properties: { service: { type: "string" } } } },
-    { name: "mcp_github_get_pr", description: "Fetch GitHub pull request metadata and diff.", input_schema: { type: "object", properties: { pr: { type: "number" } } } },
-    { name: "mcp_github_list_issues", description: "List open issues in the repository.", input_schema: { type: "object", properties: { label: { type: "string" } } } },
-    { name: "mcp_github_review", description: "Post inline review comments on a GitHub PR.", input_schema: { type: "object", properties: { body: { type: "string" } } } },
-    { name: "mcp_linear_issue", description: "Read or update a Linear ticket status.", input_schema: { type: "object", properties: { id: { type: "string" } } } },
-    { name: "mcp_playwright_snap", description: "Capture DOM snapshot from local dev server.", input_schema: { type: "object", properties: { url: { type: "string" } } } },
-    { name: "mcp_sentry_errors", description: "Query recent production stack traces.", input_schema: { type: "object", properties: { env: { type: "string" } } } },
+    { name: "bash_exec", description: "Execute a shell command in the workspace.", input_schema: { properties: { cmd: { type: "string" } }, type: "object" } },
+    { name: "edit_file", description: "Apply a surgical replacement edit to a file.", input_schema: { properties: { path: { type: "string" }, target: { type: "string" } }, type: "object" } },
+    { name: "git_diff", description: "Inspect unstaged and staged git hunks.", input_schema: { properties: { base: { type: "string" } }, type: "object" } },
+    { name: "git_status", description: "Check branch state and modified files.", input_schema: { properties: { short: { type: "boolean" } }, type: "object" } },
+    { name: "grep_search", description: "Search files with ripgrep regex.", input_schema: { properties: { query: { type: "string" } }, type: "object" } },
+    { name: "list_dir", description: "List directory contents and file sizes.", input_schema: { properties: { dir: { type: "string" } }, type: "object" } },
+    { name: "mcp_db_query", description: "Run read-only SQL query against staging Postgres.", input_schema: { properties: { sql: { type: "string" } }, type: "object" } },
+    { name: "mcp_db_schema", description: "Inspect table schemas and indexes.", input_schema: { properties: { table: { type: "string" } }, type: "object" } },
+    { name: "mcp_docker_logs", description: "Tail container logs from local Docker Compose.", input_schema: { properties: { service: { type: "string" } }, type: "object" } },
+    { name: "mcp_github_get_pr", description: "Fetch GitHub pull request metadata and diff.", input_schema: { properties: { pr: { type: "number" } }, type: "object" } },
+    { name: "mcp_github_list_issues", description: "List open issues in the repository.", input_schema: { properties: { label: { type: "string" } }, type: "object" } },
+    { name: "mcp_github_review", description: "Post inline review comments on a GitHub PR.", input_schema: { properties: { body: { type: "string" } }, type: "object" } },
+    { name: "mcp_linear_issue", description: "Read or update a Linear ticket status.", input_schema: { properties: { id: { type: "string" } }, type: "object" } },
+    { name: "mcp_playwright_snap", description: "Capture DOM snapshot from local dev server.", input_schema: { properties: { url: { type: "string" } }, type: "object" } },
+    { name: "mcp_sentry_errors", description: "Query recent production stack traces.", input_schema: { properties: { env: { type: "string" } }, type: "object" } },
   ];
 
   if (!shuffled) return baseTools;

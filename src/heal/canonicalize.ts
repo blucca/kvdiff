@@ -4,6 +4,13 @@ function compareCodeUnit(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+function compareCanonicalKey(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a === "name") return -1;
+  if (b === "name") return 1;
+  return a < b ? -1 : 1;
+}
+
 function sortObjectKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) {
     // NEVER reorder arrays (preserves enum[], required[], anyOf[], etc.)
@@ -12,7 +19,7 @@ function sortObjectKeysDeep(value: unknown): unknown {
   if (value !== null && typeof value === "object") {
     const record = value as Record<string, unknown>;
     const sorted: Record<string, unknown> = {};
-    for (const key of Object.keys(record).sort(compareCodeUnit)) {
+    for (const key of Object.keys(record).sort(compareCanonicalKey)) {
       sorted[key] = sortObjectKeysDeep(record[key]);
     }
     return sorted;

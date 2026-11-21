@@ -8,6 +8,8 @@
 
 ![kvdiff prompt-cache waterfall and byte-diff inspector](./docs/hero-waterfall.png)
 
+**15-second demo video:** [Watch `kvdiff-demo.mp4` (1280x720 H.264)](https://github.com/flipcyde101/kvdiff/releases/download/v0.1.0/kvdiff-demo.mp4) | [Poster preview](./docs/kvdiff-poster.png) | Try live: `npx kvdiff --demo`
+
 ---
 
 ## See a Prompt-Cache Bust in 5 Seconds (Zero API Keys Required)
@@ -17,11 +19,12 @@ npx kvdiff --demo
 ```
 
 Opens `http://127.0.0.1:4318` pre-seeded with two realistic sessions:
-1. **Claude Code + 15 MCP Tools (16 turns):** Turns 1–13 run at 94% cache hit. On **Turn 14**, `mcp-github` reconnects and reorders tool schemas — `kvdiff` highlights the exact red byte offset (`$.tools[9].name`), calculates the wasted cost, and shows **Turn 15** snapping back to **97% cache hit** under `--heal`.
+1. **Claude Code + 15 MCP Tools (16 turns):** Turn 1 warms the prompt cache at 0%, and Turns 2-13 run at 94% cache hit. On **Turn 14**, `mcp-github` reconnects and reorders tool schemas: `kvdiff` highlights the exact red byte offset (`$.tools[9].name`, byte 1,670), calculates the wasted cost ($0.38), and shows **Turn 15** snapping back to **97% cache hit** under `--heal`.
 2. **Antigravity / Gemini 2.5 Pro (5 turns):** Catches a volatile timestamp injected into `$.systemInstruction.parts[0].text` on Turn 4.
 
-<!-- Replace with recorded H.264 .mp4 or VHS GIF before Show HN launch -->
-> **Demo recording:** Regenerate terminal clip via `vhs demo/kvdiff.tape` or record `http://127.0.0.1:4318` at `1280×720` after running `npx kvdiff --demo`.
+[![Watch the 15-second kvdiff demo video](./docs/kvdiff-poster.png)](https://github.com/flipcyde101/kvdiff/releases/download/v0.1.0/kvdiff-demo.mp4)
+
+> **15s demo clip:** Click the poster above to play [`kvdiff-demo.mp4`](https://github.com/flipcyde101/kvdiff/releases/download/v0.1.0/kvdiff-demo.mp4) or regenerate a terminal recording via `vhs demo/kvdiff.tape`.
 
 ---
 
@@ -82,7 +85,7 @@ Then point your client base URL:
 | **Opt-in live prefix healing (`--heal`)** | **Yes** | No | No | No |
 | **Multi-provider (Anthropic + OpenAI + Gemini/Antigravity + `llama.cpp`)** | **Yes** | Single-provider focus | Anthropic/OpenAI | Yes |
 | **Zero-mutation default passthrough** | **Yes** (OAuth/beta headers intact) | N/A (offline log reader) | Yes | SDK instrumentation |
-| **Where competitors win** | — | Zero proxy setup; great historical billing totals across past months | High-level token breakdown visualizations | Production team evals, prompt versioning, multi-user cloud traces |
+| **Where competitors win** | - | Zero proxy setup; great historical billing totals across past months | High-level token breakdown visualizations | Production team evals, prompt versioning, multi-user cloud traces |
 
 ---
 
