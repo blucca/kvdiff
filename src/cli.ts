@@ -1,15 +1,18 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { realpathSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { KvStore } from "./store.js";
 import { createProxyServer } from "./proxy/server.js";
 import { seedDemoSession } from "./demo/fixture.js";
 import { runWrappedCommand } from "./launcher/spawn.js";
 import { formatExitSummary } from "./launcher/hud.js";
 
-interface ParsedArgs {
+export interface ParsedArgs {
   mode: "help" | "demo" | "serve" | "ui" | "wrap";
   port: number;
+  portProvided: boolean;
   host: string;
   heal: boolean;
   dbPath: string;
@@ -43,7 +46,7 @@ Options:
   -h, --help                   Show this help`);
 }
 
-function parseArgs(argv: string[]): ParsedArgs {
+export function parseArgs(argv: string[]): ParsedArgs {
   const sepIdx = argv.indexOf("--");
   const kvArgs = sepIdx >= 0 ? argv.slice(0, sepIdx) : argv;
   const wrappedCommand = sepIdx >= 0 ? argv.slice(sepIdx + 1) : [];
@@ -51,6 +54,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   const parsed: ParsedArgs = {
     mode: wrappedCommand.length > 0 ? "wrap" : "help",
     port: 4318,
+    portProvided: false,
     host: "127.0.0.1",
     heal: false,
     dbPath: DEFAULT_DB,
@@ -72,6 +76,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       parsed.heal = true;
     } else if (arg === "--port" && kvArgs[i + 1]) {
       parsed.port = Number(kvArgs[++i]);
+      parsed.portProvided = true;
     } else if (arg === "--host" && kvArgs[i + 1]) {
       parsed.host = kvArgs[++i];
     } else if (arg === "--db" && kvArgs[i + 1]) {
@@ -167,7 +172,7 @@ async function main(): Promise<void> {
 
   const proxy = await createProxyServer({
     store,
-    port: args.port === 4318 ? 0 : args.port,
+    port: args.portProvided ? args.port : 0,
     host: args.host,
     heal: args.heal,
     defaultSessionId: sessionId,
@@ -198,7 +203,21 @@ async function main(): Promise<void> {
   process.exitCode = exitCode;
 }
 
-main().catch((err) => {
-  console.error(`[kvdiff] Fatal error: ${(err as Error).message}`);
-  process.exitCode = 1;
-});
+function isDirectEntry(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return (
+      realpathSync(fileURLToPath(import.meta.url)).toLowerCase() ===
+      realpathSync(resolve(process.argv[1])).toLowerCase()
+    );
+  } catch {
+    return resolve(fileURLToPath(import.meta.url)).toLowerCase() === resolve(process.argv[1]).toLowerCase();
+  }
+}
+
+if (isDirectEntry()) {
+  main().catch((err) => {
+    console.error(`[kvdiff] Fatal error: ${(err as Error).message}`);
+    process.exitCode = 1;
+  });
+}

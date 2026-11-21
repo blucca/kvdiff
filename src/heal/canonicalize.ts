@@ -1,5 +1,9 @@
 import type { ProviderKind } from "../types.js";
 
+function compareCodeUnit(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function sortObjectKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) {
     // NEVER reorder arrays (preserves enum[], required[], anyOf[], etc.)
@@ -8,7 +12,7 @@ function sortObjectKeysDeep(value: unknown): unknown {
   if (value !== null && typeof value === "object") {
     const record = value as Record<string, unknown>;
     const sorted: Record<string, unknown> = {};
-    for (const key of Object.keys(record).sort()) {
+    for (const key of Object.keys(record).sort(compareCodeUnit)) {
       sorted[key] = sortObjectKeysDeep(record[key]);
     }
     return sorted;
@@ -20,7 +24,11 @@ function getToolSortKey(tool: unknown): string {
   if (!tool || typeof tool !== "object") return "";
   const rec = tool as Record<string, unknown>;
   if (typeof rec.name === "string") return rec.name;
-  if (rec.function && typeof rec.function === "object" && typeof (rec.function as Record<string, unknown>).name === "string") {
+  if (
+    rec.function &&
+    typeof rec.function === "object" &&
+    typeof (rec.function as Record<string, unknown>).name === "string"
+  ) {
     return (rec.function as Record<string, unknown>).name as string;
   }
   return "";
@@ -45,44 +53,75 @@ export function healRequestPayload(
   const changes: string[] = [];
 
   if (Array.isArray(root.tools) && root.tools.length > 0) {
+    const toolsArr = root.tools;
     if (provider === "gemini") {
-      let sortedCount = 0;
-      root.tools = root.tools.map((entry) => {
+      const beforeTools = JSON.stringify(toolsArr);
+      let declCount = 0;
+      root.tools = toolsArr.map((entry) => {
         if (!entry || typeof entry !== "object") return entry;
         const block = { ...(entry as Record<string, unknown>) };
         if (Array.isArray(block.functionDeclarations)) {
-          const before = JSON.stringify(block.functionDeclarations);
           const canonicalDecls = [...block.functionDeclarations]
             .map(sortObjectKeysDeep)
-            .sort((a, b) => getToolSortKey(a).localeCompare(getToolSortKey(b)));
-          if (JSON.stringify(canonicalDecls) !== before) {
-            sortedCount += canonicalDecls.length;
-          }
+            .sort((a, b) => compareCodeUnit(getToolSortKey(a), getToolSortKey(b)));
+          declCount += canonicalDecls.length;
           block.functionDeclarations = canonicalDecls;
         }
         return sortObjectKeysDeep(block);
       });
-      if (sortedCount > 0) {
-        changes.push(`canonicalized ${sortedCount} Gemini functionDeclarations`);
+      if (JSON.stringify(root.tools) !== beforeTools) {
+        changes.push(`canonicalized ${declCount || toolsArr.length} Gemini tool definitions`);
       }
     } else {
-      const before = JSON.stringify(root.tools);
-      const canonicalTools = [...root.tools]
+      const beforeTools = JSON.stringify(toolsArr);
+      // Preserve trailing Anthropic cache_control breakpoint on the final sorted tool
+      let trailingCacheControl: unknown = undefined;
+      const strippedTools = toolsArr.map((t, idx) => {
+        if (
+          provider === "anthropic" &&
+          idx === toolsArr.length - 1 &&
+          t &&
+          typeof t === "object" &&
+          "cache_control" in (t as Record<string, unknown>)
+        ) {
+          const copy = { ...(t as Record<string, unknown>) };
+          trailingCacheControl = copy.cache_control;
+          delete copy.cache_control;
+          return copy;
+        }
+        return t;
+      });
+
+      const canonicalTools = strippedTools
         .map(sortObjectKeysDeep)
-        .sort((a, b) => getToolSortKey(a).localeCompare(getToolSortKey(b)));
-      if (JSON.stringify(canonicalTools) !== before) {
-        root.tools = canonicalTools;
+        .sort((a, b) => compareCodeUnit(getToolSortKey(a), getToolSortKey(b)));
+
+      if (trailingCacheControl !== undefined && canonicalTools.length > 0) {
+        const lastIdx = canonicalTools.length - 1;
+        const lastTool = canonicalTools[lastIdx];
+        if (lastTool && typeof lastTool === "object" && !Array.isArray(lastTool)) {
+          canonicalTools[lastIdx] = sortObjectKeysDeep({
+            ...(lastTool as Record<string, unknown>),
+            cache_control: trailingCacheControl,
+          });
+        }
+      }
+
+      root.tools = canonicalTools;
+      if (JSON.stringify(canonicalTools) !== beforeTools) {
         changes.push(`canonicalized ${canonicalTools.length} tools and schema keys`);
       }
     }
   }
 
-  if (changes.length === 0) {
-    return { body: rawBody, changes: [] };
+  // Always emit compact canonical JSON under --heal when bytes differ (prevents Turn 1 compact vs Turn 2 pretty mismatch)
+  const serialized = Buffer.from(JSON.stringify(root), "utf8");
+  if (!serialized.equals(rawBody)) {
+    if (changes.length === 0) {
+      changes.push("normalized JSON whitespace for deterministic prefix");
+    }
+    return { body: serialized, changes };
   }
 
-  return {
-    body: Buffer.from(JSON.stringify(root), "utf8"),
-    changes,
-  };
+  return { body: rawBody, changes: [] };
 }

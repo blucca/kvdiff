@@ -148,4 +148,44 @@ describe("diagnoseCacheBreak", () => {
     });
     expect(shortDiag.kind).toBe("PREFIX_TOO_SHORT");
   });
+
+  it("Fix #9: detects VOLATILE_SYSTEM on OpenAI Responses instructions and avoids false HISTORY_MUTATED on appended turns", () => {
+    const prevResp = makePrevTurn(
+      { model: "gpt-4.1", instructions: "Now: 03:00", input: [{ role: "user", content: "hi" }] },
+      { provider: "openai", model: "gpt-4.1" }
+    );
+    const currVolatile = Buffer.from(
+      JSON.stringify({ model: "gpt-4.1", instructions: "Now: 03:01", input: [{ role: "user", content: "hi" }] }),
+      "utf8"
+    );
+    const diagVol = diagnoseCacheBreak({
+      provider: "openai",
+      prevTurn: prevResp,
+      currBody: currVolatile,
+      currModel: "gpt-4.1",
+      currTimestampMs: prevResp.timestampMs + 10_000,
+      currUsage: { inputTokens: 15_000, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 100, totalPromptTokens: 15_000 },
+    });
+    expect(diagVol.kind).toBe("VOLATILE_SYSTEM");
+
+    // Normal appended turn with 0 cache read inside 5m window should NOT falsely report HISTORY_MUTATED
+    const prevAppend = makePrevTurn({ model: "claude-sonnet-4-5", system: "s", messages: [{ role: "user", content: "a" }] });
+    const currAppend = Buffer.from(
+      JSON.stringify({
+        model: "claude-sonnet-4-5",
+        system: "s",
+        messages: [{ role: "user", content: "a" }, { role: "user", content: "b" }],
+      }),
+      "utf8"
+    );
+    const diagAppend = diagnoseCacheBreak({
+      provider: "anthropic",
+      prevTurn: prevAppend,
+      currBody: currAppend,
+      currModel: "claude-sonnet-4-5",
+      currTimestampMs: prevAppend.timestampMs + 10_000,
+      currUsage: { inputTokens: 20_000, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 100, totalPromptTokens: 20_000 },
+    });
+    expect(diagAppend.kind).not.toBe("HISTORY_MUTATED");
+  });
 });

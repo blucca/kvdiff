@@ -46,6 +46,7 @@ export class KvStore {
     if (dbPath !== ":memory:") {
       this.db.exec("PRAGMA journal_mode = WAL;");
     }
+    this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.exec("PRAGMA synchronous = NORMAL;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
@@ -196,21 +197,41 @@ export class KvStore {
     return rows.map(hydrateTurn);
   }
 
-  getLastTurn(sessionId: string): TurnRecord | null {
-    const row = this.db
-      .prepare(`
-        SELECT
-          id, session_id, turn_index, timestamp_ms, provider, endpoint, model,
-          status_code, latency_ms, healed, heal_changes_json, usage_json,
-          cost_usd, diagnosis_json, raw_request_body
-        FROM turns
-        WHERE session_id = ?
-        ORDER BY turn_index DESC, id DESC
-        LIMIT 1
-      `)
-      .get(sessionId) as unknown as RawTurnRow | undefined;
+  getLastTurn(sessionId: string, model?: string): TurnRecord | null {
+    const row = model
+      ? (this.db
+          .prepare(`
+            SELECT
+              id, session_id, turn_index, timestamp_ms, provider, endpoint, model,
+              status_code, latency_ms, healed, heal_changes_json, usage_json,
+              cost_usd, diagnosis_json, raw_request_body
+            FROM turns
+            WHERE session_id = ? AND model = ? AND status_code >= 200 AND status_code < 300
+            ORDER BY turn_index DESC, id DESC
+            LIMIT 1
+          `)
+          .get(sessionId, model) as unknown as RawTurnRow | undefined)
+      : (this.db
+          .prepare(`
+            SELECT
+              id, session_id, turn_index, timestamp_ms, provider, endpoint, model,
+              status_code, latency_ms, healed, heal_changes_json, usage_json,
+              cost_usd, diagnosis_json, raw_request_body
+            FROM turns
+            WHERE session_id = ?
+            ORDER BY turn_index DESC, id DESC
+            LIMIT 1
+          `)
+          .get(sessionId) as unknown as RawTurnRow | undefined);
 
     return row ? hydrateTurn(row) : null;
+  }
+
+  getNextTurnIndex(sessionId: string): number {
+    const row = this.db
+      .prepare("SELECT MAX(turn_index) AS max_turn FROM turns WHERE session_id = ?")
+      .get(sessionId) as { max_turn: number | null } | undefined;
+    return Number(row?.max_turn ?? 0) + 1;
   }
 
   close(): void {

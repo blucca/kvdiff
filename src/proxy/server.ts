@@ -1,8 +1,16 @@
 import http from "node:http";
 import https from "node:https";
-import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
+import {
+  brotliDecompressSync,
+  createBrotliDecompress,
+  createGunzip,
+  createInflate,
+  gunzipSync,
+  inflateSync,
+} from "node:zlib";
+import type { Transform } from "node:stream";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { extname, join, normalize } from "node:path";
+import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KvStore } from "../store.js";
 import type { ProviderKind, TokenUsage, TurnRecord } from "../types.js";
@@ -51,6 +59,35 @@ const MIME_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
+const NON_GENERATION_PATH_RE = /(?:\/count_tokens|:countTokens|\/embeddings)\b/i;
+
+function normalizeIncomingUrl(rawUrl: string): { pathname: string; search: string; normalized: string } {
+  const qIdx = rawUrl.indexOf("?");
+  const rawPath = qIdx >= 0 ? rawUrl.slice(0, qIdx) : rawUrl;
+  const search = qIdx >= 0 ? rawUrl.slice(qIdx) : "";
+  // Collapse leading duplicate slashes so `//v1/messages` can never override upstream host
+  let pathname = rawPath.replace(/^\/+/, "/");
+  // Collapse accidental `/v1/v1/...` from OPENAI_BASE_URL=.../v1 + client `/v1/...`
+  pathname = pathname.replace(/^\/v1\/v1(\/|$)/, "/v1$1");
+  return { pathname, search, normalized: `${pathname}${search}` };
+}
+
+function buildUpstreamUrl(upstreamBase: string, pathname: string, search: string): URL {
+  const base = new URL(upstreamBase);
+  const basePath = base.pathname.replace(/\/+$/, "");
+  let reqPath = pathname;
+
+  // Deduplicate overlapping `/v1` when base already ends in `/v1` (e.g. OpenRouter `/api/v1`)
+  if (basePath.endsWith("/v1") && (reqPath === "/v1" || reqPath.startsWith("/v1/"))) {
+    reqPath = reqPath.slice(3) || "/";
+  }
+
+  const joinedPath = `${basePath}${reqPath.startsWith("/") ? reqPath : `/${reqPath}`}`.replace(/\/{2,}/g, "/");
+  base.pathname = joinedPath;
+  base.search = search;
+  return base;
+}
+
 function decompressIfNeeded(buf: Buffer, encodingHeader: string | string[] | undefined): Buffer {
   const enc = (Array.isArray(encodingHeader) ? encodingHeader[0] : encodingHeader ?? "").toLowerCase().trim();
   if (!enc || buf.length === 0) return buf;
@@ -64,11 +101,20 @@ function decompressIfNeeded(buf: Buffer, encodingHeader: string | string[] | und
   return buf;
 }
 
+function createStreamingDecompressor(encodingHeader: string | string[] | undefined): Transform | null {
+  const enc = (Array.isArray(encodingHeader) ? encodingHeader[0] : encodingHeader ?? "").toLowerCase().trim();
+  if (!enc) return null;
+  if (enc.includes("gzip")) return createGunzip();
+  if (enc.includes("br")) return createBrotliDecompress();
+  if (enc.includes("deflate")) return createInflate();
+  return null;
+}
+
 function readStreamToBuffer(req: http.IncomingMessage): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolveBuf, reject) => {
     const chunks: Buffer[] = [];
     req.on("data", (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("end", () => resolveBuf(Buffer.concat(chunks)));
     req.on("error", reject);
   });
 }
@@ -98,8 +144,7 @@ function resolveDefaultUiDir(): string {
   const here = fileURLToPath(new URL(".", import.meta.url));
   const candidateA = join(here, "ui");
   if (existsSync(candidateA)) return candidateA;
-  const candidateB = join(here, "..", "..", "dist", "ui");
-  return candidateB;
+  return join(here, "..", "..", "dist", "ui");
 }
 
 function resolveUpstreamBase(provider: ProviderKind, opts: ProxyServerOptions): string {
@@ -116,88 +161,118 @@ export async function createProxyServer(opts: ProxyServerOptions): Promise<{
   close: () => Promise<void>;
 }> {
   const host = opts.host ?? "127.0.0.1";
-  const uiDir = opts.uiDir ?? resolveDefaultUiDir();
+  const resolvedUiDir = resolve(opts.uiDir ?? resolveDefaultUiDir());
+  const uiDirPrefix = resolvedUiDir.endsWith(sep) ? resolvedUiDir : `${resolvedUiDir}${sep}`;
   const sseClients = new Set<http.ServerResponse>();
 
   const broadcastEvent = (payload: unknown): void => {
     const msg = `data: ${JSON.stringify(payload)}\n\n`;
     for (const client of sseClients) {
-      if (!client.writableEnded) {
-        client.write(msg);
+      if (client.writableEnded || client.destroyed) {
+        sseClients.delete(client);
+        continue;
       }
+      client.write(msg);
     }
   };
 
-  const serveUiAsset = (reqPath: string, res: http.ServerResponse): boolean => {
-    const stripped = reqPath.replace(/^\/__kvdiff\/?/, "/");
+  const serveUiAsset = (reqPath: string, res: http.ServerResponse): void => {
+    let decodedPath: string;
+    try {
+      decodedPath = decodeURIComponent(reqPath);
+    } catch {
+      res.writeHead(400);
+      res.end("Bad Request");
+      return;
+    }
+
+    const stripped = decodedPath.replace(/^\/__kvdiff\/?/, "/");
     const rel = stripped === "/" || stripped === "" ? "index.html" : stripped.replace(/^\/+/, "");
-    const safePath = normalize(join(uiDir, rel));
-    if (!safePath.startsWith(normalize(uiDir))) {
+    const safePath = resolve(resolvedUiDir, rel);
+
+    if (safePath !== resolvedUiDir && !safePath.startsWith(uiDirPrefix)) {
       res.writeHead(403);
       res.end("Forbidden");
-      return true;
+      return;
     }
 
     const target = existsSync(safePath) && statSync(safePath).isFile()
       ? safePath
-      : join(uiDir, "index.html");
+      : join(resolvedUiDir, "index.html");
 
     if (!existsSync(target)) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(`<!doctype html><html><body style="font-family:monospace;background:#0d1117;color:#c9d1d9;padding:24px"><h2>kvdiff proxy running</h2><p>UI bundle not built yet. Run <code>npm run build</code>.</p></body></html>`);
-      return true;
+      res.end(
+        `<!doctype html><html><body style="font-family:monospace;background:#0d1117;color:#c9d1d9;padding:24px"><h2>kvdiff proxy running</h2><p>UI bundle not built yet. Run <code>npm run build</code>.</p></body></html>`
+      );
+      return;
     }
 
     const ext = extname(target).toLowerCase();
     res.writeHead(200, { "content-type": MIME_TYPES[ext] ?? "application/octet-stream" });
     res.end(readFileSync(target));
-    return true;
   };
 
   const server = http.createServer(async (req, res) => {
-    const rawUrl = req.url ?? "/";
-    const [pathname] = rawUrl.split("?");
+    res.on("error", () => {
+      // swallow client socket reset errors safely
+    });
 
-    // Internal kvdiff API & UI routes
-    if (pathname === "/__kvdiff/api/sessions" && req.method === "GET") {
-      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-      res.end(JSON.stringify(opts.store.listSessions()));
-      return;
-    }
-
-    const turnsMatch = /^\/__kvdiff\/api\/sessions\/([^/]+)\/turns$/.exec(pathname);
-    if (turnsMatch && req.method === "GET") {
-      const sessionId = decodeURIComponent(turnsMatch[1]);
-      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-      res.end(JSON.stringify(opts.store.getSessionTurns(sessionId)));
-      return;
-    }
-
-    if (pathname === "/__kvdiff/api/events" && req.method === "GET") {
-      res.writeHead(200, {
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-      });
-      res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
-      sseClients.add(res);
-      req.on("close", () => sseClients.delete(res));
-      return;
-    }
-
-    if (req.method === "GET" && (pathname === "/" || pathname.startsWith("/__kvdiff") || pathname.startsWith("/assets/"))) {
-      serveUiAsset(pathname, res);
-      return;
-    }
-
-    // Reverse proxy LLM API traffic
-    const startedAt = Date.now();
     try {
+      const { pathname, search, normalized } = normalizeIncomingUrl(req.url ?? "/");
+
+      // Internal kvdiff API & UI routes
+      if (pathname === "/__kvdiff/api/sessions" && req.method === "GET") {
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify(opts.store.listSessions()));
+        return;
+      }
+
+      const turnsMatch = /^\/__kvdiff\/api\/sessions\/([^/]+)\/turns$/.exec(pathname);
+      if (turnsMatch && req.method === "GET") {
+        let sessionId: string;
+        try {
+          sessionId = decodeURIComponent(turnsMatch[1]);
+        } catch {
+          res.writeHead(400, { "content-type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify({ error: "invalid_session_id" }));
+          return;
+        }
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify(opts.store.getSessionTurns(sessionId)));
+        return;
+      }
+
+      if (pathname === "/__kvdiff/api/events" && req.method === "GET") {
+        res.writeHead(200, {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+        });
+        res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
+        sseClients.add(res);
+        const dropClient = () => sseClients.delete(res);
+        req.on("close", dropClient);
+        res.on("close", dropClient);
+        res.on("error", dropClient);
+        return;
+      }
+
+      if (
+        req.method === "GET" &&
+        (pathname === "/" || pathname.startsWith("/__kvdiff") || pathname.startsWith("/assets/"))
+      ) {
+        serveUiAsset(pathname, res);
+        return;
+      }
+
+      // Reverse proxy LLM API traffic
+      const startedAt = Date.now();
       const rawReqBuf = await readStreamToBuffer(req);
       const inspectReqBuf = decompressIfNeeded(rawReqBuf, req.headers["content-encoding"]);
-      const provider = detectProvider(rawUrl, req.headers, Boolean(opts.upstreamLocal));
+      const provider = detectProvider(normalized, req.headers, Boolean(opts.upstreamLocal));
       const upstreamBase = resolveUpstreamBase(provider, opts);
-      const upstreamUrl = new URL(rawUrl, upstreamBase);
+      const upstreamUrl = buildUpstreamUrl(upstreamBase, pathname, search);
 
       let forwardReqBuf = rawReqBuf;
       let healed = false;
@@ -252,74 +327,106 @@ export async function createProxyServer(opts: ProxyServerOptions): Promise<{
           const contentType = String(upstreamRes.headers["content-type"] ?? "").toLowerCase();
           const isSse = contentType.includes("text/event-stream");
           const sseParser = isSse ? new SseTeeParser() : null;
+          const sseDecompressor = isSse ? createStreamingDecompressor(upstreamRes.headers["content-encoding"]) : null;
+          let sseDecompressDone: Promise<void> | null = null;
+
+          if (sseParser && sseDecompressor) {
+            sseDecompressDone = new Promise<void>((resolveDone) => {
+              sseDecompressor.on("data", (decChunk: Buffer) => sseParser.push(decChunk));
+              sseDecompressor.on("end", () => resolveDone());
+              sseDecompressor.on("error", () => resolveDone());
+            });
+          }
+
           const respChunks: Buffer[] = [];
           const maxBufferedBytes = 8 * 1024 * 1024;
           let respBytes = 0;
 
           upstreamRes.on("data", (chunk: Buffer) => {
-            // Immediate zero-buffering flush downstream!
-            res.write(chunk);
+            if (!res.writableEnded && !res.destroyed) {
+              res.write(chunk);
+            }
             if (sseParser) {
-              sseParser.push(chunk);
+              if (sseDecompressor) {
+                sseDecompressor.write(chunk);
+              } else {
+                sseParser.push(chunk);
+              }
             } else if (respBytes < maxBufferedBytes) {
               respChunks.push(chunk);
               respBytes += chunk.length;
             }
           });
 
-          upstreamRes.on("end", () => {
-            res.end();
-            if (req.method !== "POST" || recordedReqBuf.length === 0) return;
-
-            let parsedPayload: unknown = null;
-            if (sseParser) {
-              parsedPayload = sseParser.finish();
-            } else {
-              const rawResp = decompressIfNeeded(
-                Buffer.concat(respChunks),
-                upstreamRes.headers["content-encoding"]
-              );
-              try {
-                parsedPayload = JSON.parse(rawResp.toString("utf8"));
-              } catch {
-                parsedPayload = null;
+          upstreamRes.on("end", async () => {
+            if (!res.writableEnded) res.end();
+            try {
+              if (sseDecompressor) {
+                sseDecompressor.end();
+                await sseDecompressDone;
               }
+
+              // Skip non-generation endpoints (count_tokens, embeddings) and non-POST traffic
+              if (req.method !== "POST" || recordedReqBuf.length === 0 || NON_GENERATION_PATH_RE.test(pathname)) {
+                return;
+              }
+              // Skip failed upstream responses so 429/500 errors don't pollute turn baselines
+              if (statusCode < 200 || statusCode >= 300) {
+                return;
+              }
+
+              let parsedPayload: unknown = null;
+              if (sseParser) {
+                parsedPayload = sseParser.finish();
+              } else {
+                const rawResp = decompressIfNeeded(
+                  Buffer.concat(respChunks),
+                  upstreamRes.headers["content-encoding"]
+                );
+                try {
+                  parsedPayload = JSON.parse(rawResp.toString("utf8"));
+                } catch {
+                  parsedPayload = null;
+                }
+              }
+
+              const model = extractModelFromRequest(provider, normalized, recordedReqBuf);
+              const usage = parseProviderUsage(provider, parsedPayload);
+              const prevTurn = opts.store.getLastTurn(sessionId, model);
+              const turnIndex = opts.store.getNextTurnIndex(sessionId);
+              const nowMs = Date.now();
+              const diagnosis = diagnoseCacheBreak({
+                provider,
+                prevTurn,
+                currBody: recordedReqBuf,
+                currModel: model,
+                currTimestampMs: nowMs,
+                currUsage: usage,
+              });
+              const { costUsd } = estimateCost(model, usage, prevTurn?.usage.totalPromptTokens ?? 0);
+
+              const turn = opts.store.recordTurn({
+                sessionId,
+                turnIndex,
+                timestampMs: nowMs,
+                provider,
+                endpoint: pathname,
+                model,
+                statusCode,
+                latencyMs: nowMs - startedAt,
+                healed,
+                healChanges,
+                usage,
+                costUsd,
+                diagnosis,
+                rawRequestBody: recordedReqBuf.toString("utf8"),
+              });
+
+              opts.onTurnRecorded?.(turn);
+              broadcastEvent({ type: "turn", sessionId, turnId: turn.id, turnIndex: turn.turnIndex });
+            } catch (persistErr) {
+              process.stderr.write(`[kvdiff] warning: failed to record turn: ${(persistErr as Error).message}\n`);
             }
-
-            const model = extractModelFromRequest(provider, rawUrl, recordedReqBuf);
-            const usage = parseProviderUsage(provider, parsedPayload);
-            const prevTurn = opts.store.getLastTurn(sessionId);
-            const turnIndex = prevTurn ? prevTurn.turnIndex + 1 : 1;
-            const nowMs = Date.now();
-            const diagnosis = diagnoseCacheBreak({
-              provider,
-              prevTurn,
-              currBody: recordedReqBuf,
-              currModel: model,
-              currTimestampMs: nowMs,
-              currUsage: usage,
-            });
-            const { costUsd } = estimateCost(model, usage, prevTurn?.usage.totalPromptTokens ?? 0);
-
-            const turn = opts.store.recordTurn({
-              sessionId,
-              turnIndex,
-              timestampMs: nowMs,
-              provider,
-              endpoint: pathname,
-              model,
-              statusCode,
-              latencyMs: nowMs - startedAt,
-              healed,
-              healChanges,
-              usage,
-              costUsd,
-              diagnosis,
-              rawRequestBody: recordedReqBuf.toString("utf8"),
-            });
-
-            opts.onTurnRecorded?.(turn);
-            broadcastEvent({ type: "turn", sessionId, turnId: turn.id, turnIndex: turn.turnIndex });
           });
 
           upstreamRes.on("error", () => {
@@ -327,6 +434,13 @@ export async function createProxyServer(opts: ProxyServerOptions): Promise<{
           });
         }
       );
+
+      // Abort upstream immediately if client cancels/disconnects mid-stream
+      res.on("close", () => {
+        if (!res.writableFinished) {
+          upstreamReq.destroy();
+        }
+      });
 
       upstreamReq.on("error", (err) => {
         if (!res.headersSent) {
@@ -351,9 +465,9 @@ export async function createProxyServer(opts: ProxyServerOptions): Promise<{
     }
   });
 
-  await new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolveListen, reject) => {
     server.once("error", reject);
-    server.listen(opts.port, host, () => resolve());
+    server.listen(opts.port, host, () => resolveListen());
   });
 
   const addr = server.address();
@@ -370,7 +484,8 @@ export async function createProxyServer(opts: ProxyServerOptions): Promise<{
         client.end();
       }
       sseClients.clear();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      server.closeIdleConnections?.();
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     },
   };
 }

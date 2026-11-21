@@ -88,4 +88,45 @@ describe("healRequestPayload (Review Focus #5)", () => {
     const parsed = JSON.parse(healedA.body.toString("utf8"));
     expect(parsed.contents[0].parts.map((p: { text: string }) => p.text)).toEqual(["step 2", "step 1"]);
   });
+
+  it("Fix #10: preserves trailing Anthropic cache_control breakpoint and stays byte-identical on pretty-printed inputs", () => {
+    const prettyUnsorted = Buffer.from(
+      JSON.stringify(
+        {
+          model: "claude-sonnet-4-5",
+          tools: [
+            { name: "z_tool", description: "z" },
+            { name: "a_tool", description: "a", cache_control: { type: "ephemeral" } },
+          ],
+          messages: [{ role: "user", content: "hi" }],
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    const prettySorted = Buffer.from(
+      JSON.stringify(
+        {
+          model: "claude-sonnet-4-5",
+          tools: [
+            { name: "a_tool", description: "a" },
+            { name: "z_tool", description: "z", cache_control: { type: "ephemeral" } },
+          ],
+          messages: [{ role: "user", content: "hi" }],
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const h1 = healRequestPayload("anthropic", prettyUnsorted);
+    const h2 = healRequestPayload("anthropic", prettySorted);
+
+    expect(h1.body.equals(h2.body)).toBe(true);
+    const parsed = JSON.parse(h1.body.toString("utf8"));
+    expect(parsed.tools[0].cache_control).toBeUndefined();
+    expect(parsed.tools[1].cache_control).toEqual({ type: "ephemeral" });
+  });
 });

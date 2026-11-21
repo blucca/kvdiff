@@ -65,12 +65,18 @@ function sameMultisetDifferentOrder(a: string[], b: string[]): boolean {
 
 function isOnlyAppendedTurn(prevObj: Record<string, unknown> | null, currObj: Record<string, unknown> | null, jsonPath: string | null): boolean {
   if (!prevObj || !currObj || !jsonPath) return false;
-  const key = Array.isArray(prevObj.messages) ? "messages" : Array.isArray(prevObj.contents) ? "contents" : null;
+  const key = Array.isArray(prevObj.messages)
+    ? "messages"
+    : Array.isArray(prevObj.contents)
+      ? "contents"
+      : Array.isArray(prevObj.input)
+        ? "input"
+        : null;
   if (!key) return false;
   const prevLen = (prevObj[key] as unknown[]).length;
   const match = new RegExp(`^\\$\\.${key}\\[(\\d+)\\]`).exec(jsonPath);
   if (!match) {
-    // Also check divergence right at the closing bracket of the messages array
+    // Also check divergence right at the closing bracket of the conversation array
     return jsonPath === `$.${key}` && Array.isArray(currObj[key]) && (currObj[key] as unknown[]).length > prevLen;
   }
   return Number(match[1]) >= prevLen;
@@ -155,8 +161,11 @@ export function diagnoseCacheBreak(params: {
   } else if (
     jsonPath?.startsWith("$.system") ||
     jsonPath?.startsWith("$.systemInstruction") ||
+    jsonPath?.startsWith("$.instructions") ||
     jsonPath === "$.messages[0]" ||
-    jsonPath?.startsWith("$.messages[0].")
+    jsonPath?.startsWith("$.messages[0].") ||
+    jsonPath === "$.input[0]" ||
+    jsonPath?.startsWith("$.input[0].")
   ) {
     kind = "VOLATILE_SYSTEM";
     summary = `System prompt changed at ${jsonPath} (byte ${lcp.byteOffset}) — check for timestamps, UUIDs, or dynamic state.`;
@@ -168,7 +177,10 @@ export function diagnoseCacheBreak(params: {
     kind = "TTL_EXPIRED";
     const gapSec = Math.round((currTimestampMs - prevTurn.timestampMs) / 1000);
     summary = `Prefix bytes matched, but ${gapSec}s elapsed since previous turn (>5m cache TTL).`;
-  } else if (jsonPath?.startsWith("$.messages[") || jsonPath?.startsWith("$.contents[")) {
+  } else if (
+    !isOnlyAppendedTurn(prevObj, currObj, jsonPath) &&
+    (jsonPath?.startsWith("$.messages[") || jsonPath?.startsWith("$.contents[") || jsonPath?.startsWith("$.input["))
+  ) {
     kind = "HISTORY_MUTATED";
     summary = `Earlier conversation history mutated at ${jsonPath} (byte ${lcp.byteOffset}).`;
   }

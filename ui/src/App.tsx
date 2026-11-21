@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { fetchSessions, fetchSessionTurns, subscribeEvents, type SessionSummary, type TurnRecord } from "./api.js";
 import { DiffInspector } from "./DiffInspector.js";
 
@@ -9,32 +9,39 @@ function formatUsd(n: number): string {
 export function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const activeSessionIdRef = useRef<string | null>(null);
   const [turns, setTurns] = useState<TurnRecord[]>([]);
   const [selectedTurnId, setSelectedTurnId] = useState<number | null>(null);
 
   const loadAll = async (preserveSelection = true) => {
-    const list = await fetchSessions();
-    setSessions(list);
-    const targetId =
-      preserveSelection && activeSessionId && list.some((s) => s.id === activeSessionId)
-        ? activeSessionId
-        : list[0]?.id ?? null;
+    try {
+      const list = await fetchSessions();
+      setSessions(list);
+      const currentActive = activeSessionIdRef.current;
+      const targetId =
+        preserveSelection && currentActive && list.some((s) => s.id === currentActive)
+          ? currentActive
+          : list[0]?.id ?? null;
 
-    setActiveSessionId(targetId);
-    if (!targetId) {
-      setTurns([]);
-      return;
+      activeSessionIdRef.current = targetId;
+      setActiveSessionId(targetId);
+      if (!targetId) {
+        setTurns([]);
+        return;
+      }
+      const tList = await fetchSessionTurns(targetId);
+      setTurns(tList);
+      setSelectedTurnId((prev) => {
+        if (preserveSelection && prev && tList.some((t) => t.id === prev)) return prev;
+        // Auto-focus the worst cache break turn for instant 5-second clarity
+        const worstBreak = [...tList]
+          .filter((t) => t.diagnosis.kind !== "NONE" && t.diagnosis.kind !== "FIRST_TURN")
+          .sort((a, b) => b.diagnosis.wastedUsd - a.diagnosis.wastedUsd)[0];
+        return worstBreak?.id ?? tList[tList.length - 1]?.id ?? null;
+      });
+    } catch {
+      // ignore transient polling/network errors
     }
-    const tList = await fetchSessionTurns(targetId);
-    setTurns(tList);
-    setSelectedTurnId((prev) => {
-      if (preserveSelection && prev && tList.some((t) => t.id === prev)) return prev;
-      // Auto-focus the worst cache break turn for instant 5-second clarity
-      const worstBreak = [...tList]
-        .filter((t) => t.diagnosis.kind !== "NONE" && t.diagnosis.kind !== "FIRST_TURN")
-        .sort((a, b) => b.diagnosis.wastedUsd - a.diagnosis.wastedUsd)[0];
-      return worstBreak?.id ?? tList[tList.length - 1]?.id ?? null;
-    });
   };
 
   useEffect(() => {
@@ -45,13 +52,18 @@ export function App() {
   }, []);
 
   const selectSession = async (id: string) => {
+    activeSessionIdRef.current = id;
     setActiveSessionId(id);
-    const tList = await fetchSessionTurns(id);
-    setTurns(tList);
-    const worstBreak = [...tList]
-      .filter((t) => t.diagnosis.kind !== "NONE" && t.diagnosis.kind !== "FIRST_TURN")
-      .sort((a, b) => b.diagnosis.wastedUsd - a.diagnosis.wastedUsd)[0];
-    setSelectedTurnId(worstBreak?.id ?? tList[tList.length - 1]?.id ?? null);
+    try {
+      const tList = await fetchSessionTurns(id);
+      setTurns(tList);
+      const worstBreak = [...tList]
+        .filter((t) => t.diagnosis.kind !== "NONE" && t.diagnosis.kind !== "FIRST_TURN")
+        .sort((a, b) => b.diagnosis.wastedUsd - a.diagnosis.wastedUsd)[0];
+      setSelectedTurnId(worstBreak?.id ?? tList[tList.length - 1]?.id ?? null);
+    } catch {
+      // ignore transient errors
+    }
   };
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;

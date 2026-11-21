@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { runWrappedCommand } from "../src/launcher/spawn.js";
 import { formatExitSummary } from "../src/launcher/hud.js";
+import { parseArgs } from "../src/cli.js";
 import type { TurnRecord } from "../src/types.js";
 
 describe("launcher & terminal HUD", () => {
@@ -85,5 +86,23 @@ describe("launcher & terminal HUD", () => {
     expect(summary).toContain("TOOL_REORDER");
     expect(summary).toContain("$.tools[14].description");
     expect(summary).toContain("$0.28");
+  });
+
+  it("Fix #3: handles bare `node` command with `&` and spaces cleanly on Windows", async () => {
+    const code = await runWrappedCommand({
+      command: ["node", "-e", 'process.exit("hello & world".includes("&") ? 21 : 1)'],
+      proxyUrl: "http://127.0.0.1:4318",
+      sessionId: "sess-win",
+    });
+    expect(code).toBe(21);
+  });
+
+  it("Fix #11: preserves explicit --port 4318 in wrap mode", () => {
+    const explicit = parseArgs(["--port", "4318", "--", "claude"]);
+    expect(explicit.port).toBe(4318);
+    expect(explicit.portProvided).toBe(true);
+
+    const implicit = parseArgs(["--", "claude"]);
+    expect(implicit.portProvided).toBe(false);
   });
 });

@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync, statSync } from "node:fs";
+import { extname, join } from "node:path";
 
 export interface RunWrappedOptions {
   command: string[];
@@ -24,24 +26,80 @@ export function buildProxyEnv(
   };
 }
 
+function isFile(p: string): boolean {
+  try {
+    return existsSync(p) && statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function resolveWindowsBinary(bin: string, env: NodeJS.ProcessEnv): string {
+  const pathExts = (env.PATHEXT || ".COM;.EXE;.BAT;.CMD")
+    .split(";")
+    .map((e) => e.trim())
+    .filter(Boolean);
+
+  if (bin.includes("\\") || bin.includes("/")) {
+    if (isFile(bin)) return bin;
+    for (const ext of pathExts) {
+      if (isFile(`${bin}${ext}`)) return `${bin}${ext}`;
+    }
+    return bin;
+  }
+
+  const pathDirs = (env.PATH || env.Path || "").split(";").filter(Boolean);
+  const hasExt = extname(bin) !== "";
+  for (const dir of pathDirs) {
+    if (hasExt) {
+      const candidate = join(dir, bin);
+      if (isFile(candidate)) return candidate;
+    } else {
+      for (const ext of pathExts) {
+        const candidate = join(dir, `${bin}${ext}`);
+        if (isFile(candidate)) return candidate;
+      }
+    }
+  }
+  return bin;
+}
+
+function quoteCmdArg(arg: string): string {
+  if (!/[\s"&|<>^%!]/.test(arg) && arg.length > 0) return arg;
+  return `"${arg.replace(/"/g, '""')}"`;
+}
+
 export function runWrappedCommand(opts: RunWrappedOptions): Promise<number> {
   if (opts.command.length === 0) {
     return Promise.resolve(1);
   }
 
-  const [bin, ...args] = opts.command;
+  const [rawBin, ...args] = opts.command;
   const env = buildProxyEnv(opts.proxyUrl, opts.sessionId, opts.env);
-  const needsWindowsShell =
-    process.platform === "win32" &&
-    !/\.(?:exe|com)$/i.test(bin) &&
-    !bin.includes("\\") &&
-    !bin.includes("/");
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, {
+  let spawnBin = rawBin;
+  let spawnArgs = args;
+  let windowsVerbatimArguments = false;
+
+  if (process.platform === "win32") {
+    const resolved = resolveWindowsBinary(rawBin, env);
+    if (/\.(?:cmd|bat)$/i.test(resolved)) {
+      // Invoke cmd.exe explicitly with proper quoting so .cmd/.bat shims work safely on Node 24
+      spawnBin = env.ComSpec || "cmd.exe";
+      const cmdLine = [quoteCmdArg(resolved), ...args.map(quoteCmdArg)].join(" ");
+      spawnArgs = ["/d", "/s", "/c", `"${cmdLine}"`];
+      windowsVerbatimArguments = true;
+    } else {
+      spawnBin = resolved;
+    }
+  }
+
+  return new Promise((resolveExit, reject) => {
+    const child = spawn(spawnBin, spawnArgs, {
       stdio: "inherit",
       env,
-      shell: needsWindowsShell,
+      shell: false,
+      windowsVerbatimArguments,
     });
 
     const forwardSigInt = () => child.kill("SIGINT");
@@ -62,11 +120,11 @@ export function runWrappedCommand(opts: RunWrappedOptions): Promise<number> {
     child.on("exit", (code, signal) => {
       cleanup();
       if (typeof code === "number") {
-        resolve(code);
+        resolveExit(code);
       } else if (signal) {
-        resolve(130);
+        resolveExit(130);
       } else {
-        resolve(0);
+        resolveExit(0);
       }
     });
   });
