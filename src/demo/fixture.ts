@@ -74,7 +74,7 @@ export function seedDemoSession(store: KvStore): string {
       "utf8"
     );
 
-    let effectiveBody = rawPayload;
+    let effectiveBody: Buffer = rawPayload;
     let healed = false;
     let healChanges: string[] = [];
     if (isHealedTurn) {
